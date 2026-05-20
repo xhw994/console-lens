@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div class="toolbar">
+      <select id="level-filter" title="Filter by log level">
+        <option value="">All levels</option>
+        <option value="log">log</option>
+        <option value="debug">debug</option>
+        <option value="info">info</option>
+        <option value="warn">warn</option>
+        <option value="error">error</option>
+      </select>
+      <input
+        type="text"
+        id="label-filter"
+        placeholder="Filter by label"
+        autocomplete="off"
+      />
+      <input
+        type="text"
+        id="query-bar"
+        placeholder="e.g. user.status=active  type=null  role=admin,editor"
+        autocomplete="off"
+      />
+      <button id="clear-btn" title="Clear all logs">Clear</button>
+      <button id="settings-btn" title="Settings">⚙</button>
+    </div>
+    <div id="settings-panel" class="settings-panel" hidden>
+      <div class="settings-section">
+        <div class="settings-section-title">Display</div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="sort-keys" checked />
+          Sort keys A→Z
+        </label>
+        <label class="settings-toggle">
+          <input type="checkbox" id="strict-mode" checked />
+          Strict path filtering
+        </label>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Behaviour</div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="auto-clear" checked />
+          Clear on navigation
+        </label>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Limits</div>
+        <label class="settings-row">
+          <span class="settings-label">Panel history</span>
+          <select id="panel-log-limit">
+            <option value="500">500</option>
+            <option value="1000">1000</option>
+            <option value="2500" selected>2500</option>
+            <option value="5000">5000</option>
+            <option value="0">Unlimited</option>
+          </select>
+        </label>
+        <label class="settings-row">
+          <span class="settings-label">Page buffer</span>
+          <select id="page-buffer-limit">
+            <option value="1000">1000</option>
+            <option value="2500">2500</option>
+            <option value="5000" selected>5000</option>
+            <option value="10000">10000</option>
+          </select>
+        </label>
+        <label class="settings-row">
+          <span class="settings-label">Clone depth</span>
+          <select id="clone-depth">
+            <option value="6">6</option>
+            <option value="12" selected>12</option>
+            <option value="20">20</option>
+          </select>
+        </label>
+      </div>
+      <div class="settings-section settings-section-strip">
+        <div class="settings-section-title">
+          Strip fields
+          <span class="settings-hint">(dot-paths, one per line)</span>
+        </div>
+        <textarea
+          id="strip-textarea"
+          placeholder="user.password&#10;meta._trackingId"
+        ></textarea>
+        <button id="strip-apply-btn">Apply</button>
+        <button id="strip-clear-btn" hidden>Clear strip</button>
+        <span id="strip-status" class="strip-status"></span>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span id="log-count">0 logs</span>
+    </div>
+    <div id="card-list"></div>
+    <script src="query-engine.js"></script>
+    <script src="panel.js"></script>
+  </body>
+</html>

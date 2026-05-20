@@ -1,0 +1,496 @@
+/* Console Lens — DevTools panel styles (dark theme) */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  font-size: 12px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  overflow-y: auto;
+}
+
+/* ── Toolbar ── */
+
+.toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+#level-filter {
+  flex: 0 0 100px;
+  padding: 5px 4px;
+  background: #3c3c3c;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+#level-filter:focus {
+  border-color: #007acc;
+}
+
+.toolbar input[type='text'] {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: #3c3c3c;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.toolbar input[type='text']:focus {
+  border-color: #007acc;
+}
+
+#label-filter {
+  flex: 0 0 200px;
+}
+
+#clear-btn,
+#settings-btn {
+  padding: 5px 10px;
+  background: #3c3c3c;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #d4d4d4;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#clear-btn:hover,
+#settings-btn:hover {
+  background: #505050;
+}
+
+#settings-btn {
+  font-size: 14px;
+  padding: 5px 8px;
+}
+
+#settings-btn.active {
+  border-color: #007acc;
+  color: #007acc;
+}
+
+/* ── Settings panel ── */
+
+/* Ensure HTML [hidden] attribute always wins — CSS display rules can override it otherwise */
+[hidden] { display: none !important; }
+
+.settings-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 10px 12px;
+  background: #1e1e1e;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.settings-section {
+  min-width: 140px;
+}
+
+.settings-section-title {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.settings-hint {
+  text-transform: none;
+  font-style: italic;
+  letter-spacing: 0;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  margin-bottom: 5px;
+  font-size: 12px;
+  color: #ccc;
+}
+
+.settings-toggle input {
+  cursor: pointer;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  cursor: default;
+}
+
+.settings-label {
+  min-width: 88px;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.settings-row select {
+  background: #3c3c3c;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.settings-row select:focus {
+  border-color: #007acc;
+}
+
+.settings-section-strip {
+  min-width: 220px;
+  flex: 1;
+}
+
+#strip-textarea {
+  display: block;
+  width: 100%;
+  height: 56px;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+  resize: vertical;
+  margin-bottom: 5px;
+  outline: none;
+}
+
+#strip-textarea:focus {
+  border-color: #007acc;
+}
+
+#strip-apply-btn {
+  padding: 3px 10px;
+  background: #3c3c3c;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #d4d4d4;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+#strip-apply-btn:hover,
+#strip-clear-btn:hover {
+  background: #505050;
+}
+
+#strip-clear-btn {
+  padding: 3px 10px;
+  background: #4a2020;
+  border: 1px solid #833;
+  border-radius: 3px;
+  color: #e88;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.strip-status {
+  font-size: 10px;
+  color: #e8a848;
+  margin-left: 8px;
+  font-style: italic;
+}
+
+/* ── Status bar ── */
+
+.status-bar {
+  padding: 4px 8px;
+  background: #1e1e1e;
+  border-bottom: 1px solid #3c3c3c;
+  font-size: 11px;
+  color: #888;
+}
+
+/* ── Card list ── */
+
+#card-list {
+  padding: 4px 0;
+}
+
+.card {
+  margin: 2px 8px;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  background: #252526;
+  overflow: hidden;
+}
+
+.card:hover {
+  border-color: #555;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.card-header:hover {
+  background: #2a2d2e;
+}
+
+.card-toggle {
+  color: #888;
+  font-size: 10px;
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.card-label {
+  color: #dcdcaa;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.card-timestamp {
+  color: #666;
+  font-size: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Repeat-count badge — shown when consecutive identical logs are collapsed */
+.card-count {
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 1px 6px;
+  background: #264f78;
+  color: #9cdcfe;
+  font-size: 10px;
+  border-radius: 10px;
+  font-weight: bold;
+}
+
+/* ── Extracted column pills ── */
+
+.card-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 10px 6px 30px;
+}
+
+.column-pill {
+  display: inline-flex;
+  gap: 4px;
+  padding: 2px 6px;
+  background: #1a3a4a;
+  border-radius: 2px;
+  font-size: 11px;
+}
+
+.column-pill-key {
+  color: #9cdcfe;
+}
+
+.column-pill-value {
+  color: #ce9178;
+  white-space: pre-wrap;
+  max-height: 100px;
+  overflow: hidden;
+}
+
+/* Null pill values — visually distinct from real values */
+.column-pill-value.is-null {
+  color: #666;
+  font-style: italic;
+}
+
+/* ── Expanded JSON body ── */
+
+.card-body {
+  display: none;
+  padding: 8px 10px 8px 30px;
+  border-top: 1px solid #3c3c3c;
+  max-height: 500px;
+  overflow: auto;
+}
+
+.card.expanded .card-body {
+  display: block;
+}
+
+.card.expanded .card-toggle {
+  transform: rotate(90deg);
+}
+
+/* ── JSON tree ── */
+
+.json-pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 11px;
+  line-height: 1.5;
+  font-family: inherit; /* force Menlo/Consolas — <pre> UA stylesheet overrides inheritance */
+}
+
+/* Collapsible node wrapper */
+.json-node {
+  display: inline;
+}
+
+/* ▼ / ▶ toggle button */
+.json-node-toggle {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  font-size: 8px;
+  color: #888;
+  cursor: pointer;
+  user-select: none;
+  padding-right: 2px;
+  vertical-align: middle;
+}
+
+.json-node-toggle:hover {
+  color: #ccc;
+}
+
+/* Summary shown when node is collapsed: " …5 keys }" */
+.json-summary {
+  display: none;
+  color: #666;
+  font-style: italic;
+}
+
+.json-node.collapsed > .json-summary {
+  display: inline;
+}
+
+/* Children block — hidden when collapsed */
+.json-children {
+  display: block;
+  padding-left: 16px;
+}
+
+.json-node.collapsed > .json-children {
+  display: none;
+}
+
+/* Closing brace on its own line — hidden when collapsed */
+.json-close {
+  display: block;
+}
+
+.json-node.collapsed > .json-close {
+  display: none;
+}
+
+/* One entry per child key/index */
+.json-entry {
+  display: block;
+}
+
+/* JSON syntax colours */
+.json-key {
+  color: #9cdcfe;
+  cursor: pointer;
+}
+.json-key:hover {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.json-key.copied::after {
+  content: ' \2713';
+  color: #4ec9b0;
+  font-size: 10px;
+}
+.json-string     { color: #ce9178; }
+.json-number     { color: #b5cea8; }
+.json-boolean    { color: #569cd6; }
+.json-null       { color: #569cd6; font-style: italic; }
+.json-punctuation { color: #d4d4d4; }
+
+/* ── Right-click context menu ── */
+
+.ctx-menu {
+  position: fixed;
+  background: #2d2d2d;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 0;
+  z-index: 1000;
+  min-width: 160px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.ctx-menu-item {
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #d4d4d4;
+}
+
+.ctx-menu-item:hover {
+  background: #3a3d3e;
+}
+
+/* ── Virtual scroll spacers ── */
+
+.virt-spacer {
+  width: 100%;
+  flex-shrink: 0;
+  /* height set dynamically by JS */
+}
+
+/* ── Empty state ── */
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #666;
+}
+
+.empty-state h2 {
+  font-size: 14px;
+  font-weight: normal;
+  margin-bottom: 8px;
+  color: #888;
+}
+
+.empty-state p {
+  font-size: 11px;
+  line-height: 1.6;
+}

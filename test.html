@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<!--
+  Console Lens — Manual test harness.
+  Open this file directly in Edge/Chrome (file:// or via a local server).
+  It mocks the Chrome DevTools API and pre-populates realistic test data
+  so the panel can be exercised without a real inspected page.
+
+  Test coverage:
+    ✓ Collapsible JSON tree (objects & arrays)
+    ✓ Null values in pills and tree
+    ✓ Deep nesting (5+ levels)
+    ✓ Sort keys A→Z toggle
+    ✓ ⚙ Settings panel open/close
+    ✓ Strip fields (enter "user.address" → Apply)
+    ✓ Strict vs lenient path filtering
+    ✓ Right-click context menu (Copy as JSON / Copy label)
+    ✓ Font rendering (should be Consolas / Menlo, not Courier New)
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Console Lens — Test</title>
+    <link rel="stylesheet" href="panel.css" />
+    <script>
+      // ── Mock Chrome DevTools API ──────────────────────────────────────────
+      // Must run before panel.js is loaded (panel.js calls these immediately).
+      var __mockBatch = [
+        {
+          label: 'user.signup',
+          data: {
+            userId: 42,
+            email: 'alice@example.com',
+            role: 'admin',
+            active: true,
+            score: 9.8,
+            referrer: null,
+            address: {
+              street: '123 Main St',
+              city: 'London',
+              zip: 'EC1A 1BB',
+              country: 'UK'
+            },
+            tags: ['vip', 'early-adopter', 'beta']
+          },
+          timestamp: Date.now() - 8000,
+          method: 'log'
+        },
+        {
+          label: 'api.request',
+          data: {
+            method: 'GET',
+            url: '/api/products?store=safeway&page=1',
+            status: 200,
+            duration: 142,
+            cached: false,
+            error: null,
+            headers: {
+              'content-type': 'application/json',
+              'x-request-id': 'req_8f3a2b1c',
+              'x-ratelimit-remaining': 99
+            }
+          },
+          timestamp: Date.now() - 7000,
+          method: 'info'
+        },
+        {
+          label: 'cart.update',
+          data: {
+            cartId: 'cart_xyz',
+            items: [
+              { id: 1, name: 'Organic Milk 2%', qty: 2, price: 4.99, inStock: true },
+              { id: 2, name: 'Sourdough Bread', qty: 1, price: null, inStock: false },
+              { id: 3, name: 'Greek Yogurt', qty: 3, price: 2.49, inStock: true }
+            ],
+            total: null,
+            discountCode: null,
+            promoApplied: false
+          },
+          timestamp: Date.now() - 6000,
+          method: 'log'
+        },
+        {
+          label: 'analytics.pageview',
+          data: {
+            event: 'page_view',
+            page: '/store/safeway/storefront',
+            referrer: null,
+            sessionId: 'sess_abc123',
+            properties: {
+              store: 'safeway',
+              category: null,
+              userId: null,
+              experiment: 'ctrl'
+            }
+          },
+          timestamp: Date.now() - 5000,
+          method: 'warn'
+        },
+        {
+          label: 'deeply.nested',
+          data: {
+            level1: {
+              level2: {
+                level3: {
+                  level4: {
+                    level5: {
+                      value: 'found it',
+                      nums: [10, 20, 30, 40, 50]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          timestamp: Date.now() - 4000,
+          method: 'debug'
+        },
+        {
+          label: 'auth.token',
+          data: {
+            type: 'bearer',
+            expiresIn: 3600,
+            scopes: ['read', 'write', 'admin'],
+            issued: '2026-04-01T10:00:00Z',
+            refreshToken: null
+          },
+          timestamp: Date.now() - 3000,
+          method: 'log'
+        },
+        {
+          label: 'error.boundary',
+          data: {
+            code: 'NETWORK_ERROR',
+            message: 'Failed to fetch product data',
+            retries: 3,
+            fatal: true,
+            context: {
+              component: 'ProductGrid',
+              storeId: 'safeway-downtown',
+              timestamp: '2026-04-01T10:05:32Z'
+            }
+          },
+          timestamp: Date.now() - 2000,
+          method: 'error'
+        },
+        {
+          label: 'user.signup',
+          data: {
+            userId: 99,
+            email: 'bob@example.com',
+            role: 'editor',
+            active: false,
+            score: null,
+            referrer: 'google',
+            address: null,
+            tags: []
+          },
+          timestamp: Date.now() - 1000,
+          method: 'log'
+        }
+      ];
+
+      var __batchDelivered = false;
+
+      window.chrome = {
+        devtools: {
+          inspectedWindow: {
+            eval: function (code, callback) {
+              if (!__batchDelivered) {
+                __batchDelivered = true;
+                callback(JSON.stringify(__mockBatch), null);
+              } else {
+                callback(JSON.stringify([]), null);
+              }
+            }
+          },
+          network: {
+            onNavigated: {
+              addListener: function () {}
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body>
+    <!-- Identical structure to panel.html -->
+    <div class="toolbar">
+      <select id="level-filter" title="Filter by log level">
+        <option value="">All levels</option>
+        <option value="log">log</option>
+        <option value="debug">debug</option>
+        <option value="info">info</option>
+        <option value="warn">warn</option>
+        <option value="error">error</option>
+      </select>
+      <input
+        type="text"
+        id="label-filter"
+        placeholder="Filter by label"
+        list="label-suggestions"
+        autocomplete="off"
+      />
+      <datalist id="label-suggestions"></datalist>
+      <input
+        type="text"
+        id="query-bar"
+        placeholder="e.g. user.status=active  type=null  role=admin,editor"
+        autocomplete="off"
+      />
+      <button id="clear-btn" title="Clear all logs">Clear</button>
+      <button id="settings-btn" title="Settings">⚙</button>
+    </div>
+    <div id="settings-panel" class="settings-panel" hidden>
+      <div class="settings-section">
+        <div class="settings-section-title">Display</div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="sort-keys" checked />
+          Sort keys A→Z
+        </label>
+        <label class="settings-toggle">
+          <input type="checkbox" id="strict-mode" checked />
+          Strict path filtering
+        </label>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Behaviour</div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="auto-clear" checked />
+          Clear on navigation
+        </label>
+      </div>
+      <div class="settings-section settings-section-strip">
+        <div class="settings-section-title">
+          Strip fields
+          <span class="settings-hint">(dot-paths, one per line)</span>
+        </div>
+        <textarea
+          id="strip-textarea"
+          placeholder="user.password&#10;meta._trackingId"
+        ></textarea>
+        <button id="strip-apply-btn">Apply</button>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span id="log-count">0 logs</span>
+    </div>
+    <div id="card-list"></div>
+    <script src="panel.js"></script>
+  </body>
+</html>

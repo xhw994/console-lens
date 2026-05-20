@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Console Lens — Group Label Leak Test</title>
+  <style>
+    body { font-family: Menlo, Consolas, monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; font-size: 13px; }
+    h1 { font-size: 16px; color: #9cdcfe; }
+    h2 { font-size: 14px; color: #dcdcaa; margin-top: 24px; }
+    .pass { color: #4ec9b0; }
+    .fail { color: #f44747; font-weight: bold; }
+    .detail { color: #888; font-size: 11px; margin-left: 20px; }
+    #summary { margin-top: 20px; padding: 12px; border: 1px solid #3c3c3c; border-radius: 4px; }
+    #summary.all-pass { border-color: #4ec9b0; background: #1a3a2a; }
+    #summary.has-fail { border-color: #f44747; background: #3a1a1a; }
+    pre { background: #252526; padding: 8px; border-radius: 3px; overflow-x: auto; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h1>Console Lens — Group Label Leak Test Suite</h1>
+  <p>Tests the sequence-counter fix for group label theft.</p>
+  <div id="results"></div>
+  <div id="summary"></div>
+
+  <!-- Load page-script.js to install the console interceptors -->
+  <script src="../page-script.js"></script>
+
+  <script>
+    var results = [];
+    var resultsEl = document.getElementById('results');
+    var summaryEl = document.getElementById('summary');
+
+    function clearBuffer() {
+      window.__consoleLensBuffer = [];
+    }
+
+    function getBuffer() {
+      return window.__consoleLensBuffer.slice();
+    }
+
+    function assert(name, condition, detail) {
+      results.push({ name: name, pass: condition, detail: detail });
+    }
+
+    function runAllTests() {
+      // ════════════════════════════════════════════════════════════
+      // TEST 1: Basic group label assignment
+      // group('MyGroup') → log({data}) → groupEnd()
+      // Expected: the log gets label 'MyGroup'
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('MyGroup');
+      console.log({ x: 1 });
+      console.groupEnd();
+
+      var buf1 = getBuffer();
+      assert(
+        'T1: Basic group label — immediate child gets label',
+        buf1.length === 1 && buf1[0].label === 'MyGroup',
+        'entries=' + buf1.length + ', label=' + (buf1[0] ? buf1[0].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 2: groupCollapsed works same as group
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.groupCollapsed('Collapsed Label');
+      console.log({ y: 2 });
+      console.groupEnd();
+
+      var buf2 = getBuffer();
+      assert(
+        'T2: groupCollapsed — child gets label',
+        buf2.length === 1 && buf2[0].label === 'Collapsed Label',
+        'entries=' + buf2.length + ', label=' + (buf2[0] ? buf2[0].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 3: Intervening labeled log does NOT steal group label
+      // group('X') → log('unrelated', {a:1}) → log({b:2}) → groupEnd()
+      // Expected: 'unrelated' log has label 'unrelated'
+      //           {b:2} does NOT get 'X' (label expired by intervening call)
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('X');
+      console.log('unrelated', { a: 1 });
+      console.log({ b: 2 });
+      console.groupEnd();
+
+      var buf3 = getBuffer();
+      assert(
+        'T3a: Intervening labeled log — keeps its own label',
+        buf3.length >= 1 && buf3[0].label === 'unrelated',
+        'label[0]=' + (buf3[0] ? buf3[0].label : 'NONE')
+      );
+      assert(
+        'T3b: Second log after intervention — group label expired, gets fingerprint',
+        buf3.length >= 2 && buf3[1].label !== 'X',
+        'label[1]=' + (buf3[1] ? buf3[1].label : 'NONE') + ' (should NOT be X)'
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 4: Intervening OBJECT-ONLY log (the actual theft scenario)
+      // group('Steal') → log({noise:1}) → log({child:2}) → groupEnd()
+      // Old behavior: {noise:1} steals 'Steal', {child:2} gets fingerprint
+      // New behavior: {noise:1} is the immediate next call, so it DOES get 'Steal'
+      //               {child:2} does NOT get 'Steal' (already consumed)
+      // This is actually CORRECT — the first object-only log IS the intended child
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('Steal');
+      console.log({ noise: 1 });
+      console.log({ child: 2 });
+      console.groupEnd();
+
+      var buf4 = getBuffer();
+      assert(
+        'T4a: Immediate object-only log after group — gets group label',
+        buf4.length >= 1 && buf4[0].label === 'Steal',
+        'label[0]=' + (buf4[0] ? buf4[0].label : 'NONE')
+      );
+      assert(
+        'T4b: Second object-only log — does NOT get group label (consumed)',
+        buf4.length >= 2 && buf4[1].label !== 'Steal',
+        'label[1]=' + (buf4[1] ? buf4[1].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 5: Format string group label (real-world pattern)
+      // groupCollapsed('%c event.name', 'color:red') → log({data}) → groupEnd()
+      // Expected: log gets label 'event.name' (css stripped)
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.groupCollapsed('%c event.name', 'color: red');
+      console.log({ eventData: 'test' });
+      console.groupEnd();
+
+      var buf5 = getBuffer();
+      assert(
+        'T5: Format string group — %c stripped, label extracted',
+        buf5.length === 1 && buf5[0].label === 'event.name',
+        'label=' + (buf5[0] ? buf5[0].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 6: Trailing colon stripped from group label
+      // group('my.event: ') → log({data}) → groupEnd()
+      // Expected: label is 'my.event' (colon stripped)
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('my.event: ');
+      console.log({ detail: 'test' });
+      console.groupEnd();
+
+      var buf6 = getBuffer();
+      assert(
+        'T6: Trailing colon stripped from group label',
+        buf6.length === 1 && buf6[0].label === 'my.event',
+        'label=' + (buf6[0] ? buf6[0].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 7: Nested groups
+      // group('Outer') → group('Inner') → log({data}) → groupEnd() → groupEnd()
+      // Expected: log gets 'Inner' (innermost group label)
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('Outer');
+      console.group('Inner');
+      console.log({ nested: true });
+      console.groupEnd();
+      console.groupEnd();
+
+      var buf7 = getBuffer();
+      assert(
+        'T7: Nested groups — innermost label applied',
+        buf7.length === 1 && buf7[0].label === 'Inner',
+        'label=' + (buf7[0] ? buf7[0].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 8: groupEnd clears state — log after group block doesn't get label
+      // group('Block') → log({in:1}) → groupEnd() → log({out:2})
+      // Expected: {out:2} does NOT have label 'Block'
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('Block');
+      console.log({ inside: 1 });
+      console.groupEnd();
+      console.log({ outside: 2 });
+
+      var buf8 = getBuffer();
+      assert(
+        'T8a: Inside group gets label',
+        buf8.length >= 1 && buf8[0].label === 'Block',
+        'label[0]=' + (buf8[0] ? buf8[0].label : 'NONE')
+      );
+      assert(
+        'T8b: After groupEnd — does NOT get group label',
+        buf8.length >= 2 && buf8[1].label !== 'Block',
+        'label[1]=' + (buf8[1] ? buf8[1].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 9: Empty group (no children) — label should not leak
+      // group('Leak') → groupEnd() → log({data})
+      // Expected: log does NOT get 'Leak'
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('Leak');
+      console.groupEnd();
+      console.log({ shouldNotHaveLeak: true });
+
+      var buf9 = getBuffer();
+      assert(
+        'T9: Empty group — label does not leak to subsequent log',
+        buf9.length === 1 && buf9[0].label !== 'Leak',
+        'label=' + (buf9[0] ? buf9[0].label : 'NONE') + ' (should NOT be Leak)'
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 10: Multiple groups in sequence
+      // group('A') → log({a:1}) → groupEnd() → group('B') → log({b:2}) → groupEnd()
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('A');
+      console.log({ a: 1 });
+      console.groupEnd();
+      console.group('B');
+      console.log({ b: 2 });
+      console.groupEnd();
+
+      var buf10 = getBuffer();
+      assert(
+        'T10a: First group — correct label',
+        buf10.length >= 1 && buf10[0].label === 'A',
+        'label[0]=' + (buf10[0] ? buf10[0].label : 'NONE')
+      );
+      assert(
+        'T10b: Second group — correct label (no cross-contamination)',
+        buf10.length >= 2 && buf10[1].label === 'B',
+        'label[1]=' + (buf10[1] ? buf10[1].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 11: Labeled log inside group keeps its own label
+      // group('GroupLabel') → log('MyLabel', {data}) → groupEnd()
+      // Expected: log keeps 'MyLabel', does NOT get overridden by 'GroupLabel'
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('GroupLabel');
+      console.log('MyLabel', { foo: 'bar' });
+      console.groupEnd();
+
+      var buf11 = getBuffer();
+      assert(
+        'T11: Labeled log inside group — keeps its own label',
+        buf11.length === 1 && buf11[0].label === 'MyLabel',
+        'label=' + (buf11[0] ? buf11[0].label : 'NONE')
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // TEST 12: Async theft prevention (simulated via setTimeout)
+      // group('AsyncTheft') → setTimeout → log({data}) → groupEnd()
+      // Expected: the setTimeout log does NOT get 'AsyncTheft' because
+      //           callSeq will have advanced by the time it runs
+      // ════════════════════════════════════════════════════════════
+      clearBuffer();
+      console.group('AsyncTheft');
+      // Simulate intervening sync log from "third-party" code
+      console.warn('third-party warning');
+      // Now the sequence has advanced — next object-only log should NOT get the label
+      console.log({ asyncData: true });
+      console.groupEnd();
+
+      var buf12 = getBuffer();
+      // warn('third-party warning') creates entry[0] with label 'third-party warning'
+      // log({asyncData:true}) creates entry[1] — should NOT have 'AsyncTheft' (expired)
+      assert(
+        'T12a: Third-party warn keeps its own label',
+        buf12.length >= 1 && buf12[0].label === 'third-party warning',
+        'label[0]=' + (buf12[0] ? buf12[0].label : 'NONE')
+      );
+      assert(
+        'T12b: Object log after intervention — group label expired',
+        buf12.length >= 2 && buf12[1].label !== 'AsyncTheft',
+        'label[1]=' + (buf12[1] ? buf12[1].label : 'NONE') + ' (should NOT be AsyncTheft)'
+      );
+
+      // ════════════════════════════════════════════════════════════
+      // Render results
+      // ════════════════════════════════════════════════════════════
+      var passed = 0;
+      var failed = 0;
+      var html = '';
+
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i];
+        if (r.pass) {
+          passed++;
+          html += '<div class="pass">PASS: ' + r.name + '</div>';
+        } else {
+          failed++;
+          html += '<div class="fail">FAIL: ' + r.name + '</div>';
+        }
+        html += '<div class="detail">' + r.detail + '</div>';
+      }
+
+      resultsEl.innerHTML = html;
+
+      var summaryText = passed + ' passed, ' + failed + ' failed, ' + results.length + ' total';
+      summaryEl.textContent = summaryText;
+      summaryEl.className = failed === 0 ? 'all-pass' : 'has-fail';
+
+      // Also log results for Console Lens to capture
+      console.log('Test Results', {
+        passed: passed,
+        failed: failed,
+        total: results.length,
+        results: results
+      });
+    }
+
+    // Run tests after a tick to ensure page-script.js is fully loaded
+    setTimeout(runAllTests, 0);
+  </script>
+</body>
+</html>

@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Console Lens — Query Engine & safeClone Tests</title>
+  <style>
+    body { font-family: Menlo, Consolas, monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; font-size: 13px; }
+    h1 { font-size: 16px; color: #9cdcfe; }
+    h2 { font-size: 13px; color: #dcdcaa; margin: 20px 0 4px; border-bottom: 1px solid #3c3c3c; padding-bottom: 4px; }
+    .pass { color: #4ec9b0; }
+    .fail { color: #f44747; font-weight: bold; }
+    .detail { color: #888; font-size: 11px; margin-left: 20px; margin-bottom: 2px; }
+    #summary { margin-top: 20px; padding: 12px; border: 1px solid #3c3c3c; border-radius: 4px; font-size: 14px; }
+    #summary.all-pass { border-color: #4ec9b0; background: #1a3a2a; color: #4ec9b0; }
+    #summary.has-fail { border-color: #f44747; background: #3a1a1a; color: #f44747; }
+  </style>
+</head>
+<body>
+  <h1>Console Lens — Query Engine &amp; safeClone Test Suite</h1>
+  <p>Tests <code>parseQuery</code>, <code>resolve</code>, <code>matchesFilters</code> (from query-engine.js) and <code>safeClone</code> (via page-script.js buffer).</p>
+  <div id="results"></div>
+  <div id="summary"></div>
+
+  <script src="../query-engine.js"></script>
+  <script src="../page-script.js"></script>
+
+  <script>
+    var parseQuery     = ConsoleLensEngine.parseQuery;
+    var resolve        = ConsoleLensEngine.resolve;
+    var matchesFilters = ConsoleLensEngine.matchesFilters;
+
+    var results = [];
+
+    function eq(a, b) {
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    function assert(name, condition, detail) {
+      results.push({ name: name, pass: !!condition, detail: String(detail || '') });
+    }
+
+    // ════════════════════════════════════════════════════
+    // parseQuery
+    // ════════════════════════════════════════════════════
+
+    (function testParseQuery() {
+      var r;
+
+      r = parseQuery('');
+      assert('PQ1: empty string → no columns, no filters',
+        eq(r, { columns: [], filters: [] }), JSON.stringify(r));
+
+      r = parseQuery('  ');
+      assert('PQ2: whitespace-only → no columns, no filters',
+        eq(r, { columns: [], filters: [] }), JSON.stringify(r));
+
+      r = parseQuery('status');
+      assert('PQ3: single column token',
+        eq(r, { columns: ['status'], filters: [] }), JSON.stringify(r));
+
+      r = parseQuery('user.address.city');
+      assert('PQ4: dot-path column token',
+        eq(r, { columns: ['user.address.city'], filters: [] }), JSON.stringify(r));
+
+      r = parseQuery('status=active');
+      assert('PQ5: single filter → column auto-added, filter recorded',
+        eq(r, { columns: ['status'], filters: [{ path: 'status', values: ['active'] }] }),
+        JSON.stringify(r));
+
+      r = parseQuery('role=admin,editor');
+      assert('PQ6: OR filter (comma-separated values)',
+        eq(r, { columns: ['role'], filters: [{ path: 'role', values: ['admin', 'editor'] }] }),
+        JSON.stringify(r));
+
+      r = parseQuery('status=active type=request');
+      assert('PQ7: AND filter (two tokens → two filters)',
+        r.filters.length === 2 &&
+        r.filters[0].path === 'status' && r.filters[0].values[0] === 'active' &&
+        r.filters[1].path === 'type'   && r.filters[1].values[0] === 'request',
+        JSON.stringify(r));
+
+      r = parseQuery('status=active type=request');
+      assert('PQ8: AND filter → two columns auto-added',
+        eq(r.columns, ['status', 'type']), JSON.stringify(r.columns));
+
+      r = parseQuery('foo status=active foo');
+      assert('PQ9: duplicate column token not added twice',
+        r.columns.filter(function(c){return c==='foo';}).length === 1,
+        JSON.stringify(r.columns));
+
+      r = parseQuery('status=null');
+      assert('PQ10: null value parsed as string "null"',
+        r.filters[0].values[0] === 'null', JSON.stringify(r));
+
+      r = parseQuery('a=x,y,z');
+      assert('PQ11: three OR values',
+        eq(r.filters[0].values, ['x','y','z']), JSON.stringify(r.filters[0].values));
+
+      r = parseQuery('a=');
+      assert('PQ12: empty value after = → no filter values (filter(Boolean) removes empty)',
+        eq(r.filters[0].values, []), JSON.stringify(r.filters[0].values));
+    })();
+
+    // ════════════════════════════════════════════════════
+    // resolve
+    // ════════════════════════════════════════════════════
+
+    (function testResolve() {
+      assert('RV1: simple key',
+        eq(resolve({ foo: 1 }, 'foo'), [1]), JSON.stringify(resolve({ foo: 1 }, 'foo')));
+
+      assert('RV2: nested path',
+        eq(resolve({ user: { name: 'Alice' } }, 'user.name'), ['Alice']),
+        JSON.stringify(resolve({ user: { name: 'Alice' } }, 'user.name')));
+
+      assert('RV3: missing path → []',
+        eq(resolve({ foo: 1 }, 'bar'), []),
+        JSON.stringify(resolve({ foo: 1 }, 'bar')));
+
+      assert('RV4: null value → [null]',
+        eq(resolve({ foo: null }, 'foo'), [null]),
+        JSON.stringify(resolve({ foo: null }, 'foo')));
+
+      assert('RV5: array auto-flatten — items.id',
+        eq(resolve({ items: [{ id: 1 }, { id: 2 }] }, 'items.id'), [1, 2]),
+        JSON.stringify(resolve({ items: [{ id: 1 }, { id: 2 }] }, 'items.id')));
+
+      assert('RV6: deep nesting a.b.c',
+        eq(resolve({ a: { b: { c: 42 } } }, 'a.b.c'), [42]),
+        JSON.stringify(resolve({ a: { b: { c: 42 } } }, 'a.b.c')));
+
+      assert('RV7: empty object → []',
+        eq(resolve({}, 'foo'), []),
+        JSON.stringify(resolve({}, 'foo')));
+
+      assert('RV8: null input → []',
+        eq(resolve(null, 'foo'), []),
+        JSON.stringify(resolve(null, 'foo')));
+
+      assert('RV9: empty dotPath → []',
+        eq(resolve({ foo: 1 }, ''), []),
+        JSON.stringify(resolve({ foo: 1 }, '')));
+
+      assert('RV10: string primitive at path (not further traversable) → [str]',
+        eq(resolve({ x: 'hello' }, 'x'), ['hello']),
+        JSON.stringify(resolve({ x: 'hello' }, 'x')));
+
+      assert('RV11: array value at path is flattened',
+        eq(resolve({ tags: ['a', 'b', 'c'] }, 'tags'), ['a', 'b', 'c']),
+        JSON.stringify(resolve({ tags: ['a', 'b', 'c'] }, 'tags')));
+
+      assert('RV12: null parent → child path returns []',
+        eq(resolve({ a: null }, 'a.b'), []),
+        JSON.stringify(resolve({ a: null }, 'a.b')));
+
+      assert('RV13: nested arrays — items.tags flattened',
+        eq(resolve({ items: [{ tags: ['x','y'] }, { tags: ['z'] }] }, 'items.tags'), ['x','y','z']),
+        JSON.stringify(resolve({ items: [{ tags: ['x','y'] }, { tags: ['z'] }] }, 'items.tags')));
+
+      assert('RV14: boolean false value → [false]',
+        eq(resolve({ active: false }, 'active'), [false]),
+        JSON.stringify(resolve({ active: false }, 'active')));
+
+      assert('RV15: number 0 value → [0]',
+        eq(resolve({ count: 0 }, 'count'), [0]),
+        JSON.stringify(resolve({ count: 0 }, 'count')));
+    })();
+
+    // ════════════════════════════════════════════════════
+    // matchesFilters
+    // ════════════════════════════════════════════════════
+
+    (function testMatchesFilters() {
+      function entry(overrides) {
+        return Object.assign({ id: 0, label: 'test', data: {}, timestamp: 0, method: 'log' }, overrides);
+      }
+      var noFilters = parseQuery('');
+
+      assert('MF1: no filters → always passes',
+        matchesFilters(entry(), '', noFilters, '', true), '');
+
+      assert('MF2: level match → passes',
+        matchesFilters(entry({ method: 'warn' }), '', noFilters, 'warn', true), '');
+
+      assert('MF3: level mismatch → fails',
+        !matchesFilters(entry({ method: 'log' }), '', noFilters, 'warn', true), '');
+
+      assert('MF4: label substring match (case-insensitive)',
+        matchesFilters(entry({ label: 'User Signup' }), 'signup', noFilters, '', true), '');
+
+      assert('MF5: label mismatch → fails',
+        !matchesFilters(entry({ label: 'User Signup' }), 'login', noFilters, '', true), '');
+
+      var q6 = parseQuery('status=active');
+      assert('MF6: value filter matches',
+        matchesFilters(entry({ data: { status: 'active' } }), '', q6, '', true), '');
+
+      assert('MF7: value filter mismatch → fails',
+        !matchesFilters(entry({ data: { status: 'inactive' } }), '', q6, '', true), '');
+
+      var q8 = parseQuery('role=admin,editor');
+      assert('MF8: OR filter — first value matches',
+        matchesFilters(entry({ data: { role: 'admin' } }), '', q8, '', true), '');
+
+      assert('MF9: OR filter — second value matches',
+        matchesFilters(entry({ data: { role: 'editor' } }), '', q8, '', true), '');
+
+      assert('MF10: OR filter — no value matches',
+        !matchesFilters(entry({ data: { role: 'viewer' } }), '', q8, '', true), '');
+
+      var q11 = parseQuery('status=active type=request');
+      assert('MF11: AND filter — both match → passes',
+        matchesFilters(entry({ data: { status: 'active', type: 'request' } }), '', q11, '', true), '');
+
+      assert('MF12: AND filter — one fails → fails',
+        !matchesFilters(entry({ data: { status: 'active', type: 'response' } }), '', q11, '', true), '');
+
+      var q13 = parseQuery('referrer=null');
+      assert('MF13: null filter — matches null value',
+        matchesFilters(entry({ data: { referrer: null } }), '', q13, '', true), '');
+
+      assert('MF14: null filter — does not match missing field (strict)',
+        !matchesFilters(entry({ data: {} }), '', q13, '', true), '');
+
+      var q15 = parseQuery('nonexistent=x');
+      assert('MF15: strict mode — missing path → fails',
+        !matchesFilters(entry({ data: { foo: 1 } }), '', q15, '', true), '');
+
+      assert('MF16: lenient mode — missing path → passes',
+        matchesFilters(entry({ data: { foo: 1 } }), '', q15, '', false), '');
+
+      var q17 = parseQuery('items.id=42');
+      assert('MF17: nested array filter matches',
+        matchesFilters(entry({ data: { items: [{ id: 42 }, { id: 99 }] } }), '', q17, '', true), '');
+
+      assert('MF18: nested array filter — value not present → fails',
+        !matchesFilters(entry({ data: { items: [{ id: 1 }, { id: 2 }] } }), '', q17, '', true), '');
+    })();
+
+    // ════════════════════════════════════════════════════
+    // safeClone (via page-script.js buffer)
+    // page-script.js installs console interceptors and writes to
+    // window.__consoleLensBuffer. We call console.log() with known
+    // values and read back the cloned data to verify safeClone's behaviour.
+    // ════════════════════════════════════════════════════
+
+    (function testSafeClone() {
+      function clearBuffer() { window.__consoleLensBuffer = []; }
+      function lastEntry() {
+        var buf = window.__consoleLensBuffer;
+        return buf[buf.length - 1];
+      }
+
+      // Primitives
+      clearBuffer();
+      console.log('sc-prim', { str: 'hello', num: 42, bool: true, zero: 0, neg: -1 });
+      var e1 = lastEntry();
+      assert('SC1: primitives cloned correctly',
+        e1 && e1.data.str === 'hello' && e1.data.num === 42 && e1.data.bool === true && e1.data.zero === 0,
+        JSON.stringify(e1 && e1.data));
+
+      // Null / undefined
+      clearBuffer();
+      console.log('sc-null', { a: null, b: undefined });
+      var e2 = lastEntry();
+      assert('SC2: null cloned as null',
+        e2 && e2.data.a === null, JSON.stringify(e2 && e2.data));
+      // safeClone stores b:undefined in the JS object; only absent after JSON.stringify/parse
+      assert('SC3: undefined value cloned as undefined (key present in object)',
+        e2 && 'b' in e2.data && e2.data.b === undefined, JSON.stringify(e2 && e2.data));
+
+      // Nested object
+      clearBuffer();
+      console.log('sc-nested', { user: { name: 'Alice', address: { city: 'Vancouver' } } });
+      var e3 = lastEntry();
+      assert('SC4: nested object cloned',
+        e3 && e3.data.user.address.city === 'Vancouver', JSON.stringify(e3 && e3.data));
+
+      // Array
+      clearBuffer();
+      console.log('sc-arr', { tags: ['a', 'b', 'c'] });
+      var e4 = lastEntry();
+      assert('SC5: array cloned correctly',
+        e4 && JSON.stringify(e4.data.tags) === '["a","b","c"]', JSON.stringify(e4 && e4.data));
+
+      // Date
+      clearBuffer();
+      var d = new Date('2024-01-15T12:00:00.000Z');
+      console.log('sc-date', { created: d });
+      var e5 = lastEntry();
+      assert('SC6: Date → ISO string',
+        e5 && e5.data.created === '2024-01-15T12:00:00.000Z', JSON.stringify(e5 && e5.data));
+
+      // Error
+      clearBuffer();
+      var err = new Error('boom');
+      console.log('sc-err', { err: err });
+      var e6 = lastEntry();
+      assert('SC7: Error → { __error, stack }',
+        e6 && e6.data.err && e6.data.err.__error === 'boom', JSON.stringify(e6 && e6.data.err));
+
+      // Function
+      clearBuffer();
+      console.log('sc-fn', { fn: function myFunc() {} });
+      var e7 = lastEntry();
+      assert('SC8: Function → "<<function>>"',
+        e7 && e7.data.fn === '<<function>>', JSON.stringify(e7 && e7.data));
+
+      // Circular reference
+      clearBuffer();
+      var circ = { self: null };
+      circ.self = circ;
+      console.log('sc-circ', circ);
+      var e8 = lastEntry();
+      assert('SC9: circular ref → "<<circular>>"',
+        e8 && e8.data.self === '<<circular>>', JSON.stringify(e8 && e8.data));
+
+      // DOM node
+      clearBuffer();
+      var node = document.createElement('div');
+      console.log('sc-dom', { el: node });
+      var e9 = lastEntry();
+      assert('SC10: DOM node → "<<DIV>>"',
+        e9 && e9.data.el === '<<DIV>>', JSON.stringify(e9 && e9.data));
+
+      // RegExp
+      clearBuffer();
+      console.log('sc-regex', { pattern: /foo/gi });
+      var e10 = lastEntry();
+      assert('SC11: RegExp → string representation',
+        e10 && typeof e10.data.pattern === 'string' && e10.data.pattern.indexOf('foo') !== -1,
+        JSON.stringify(e10 && e10.data));
+
+      // Deep object (should not hit depth limit at 5 levels)
+      clearBuffer();
+      console.log('sc-deep', { a: { b: { c: { d: { e: 'leaf' } } } } });
+      var e11 = lastEntry();
+      assert('SC12: 5-level deep object cloned without hitting limit',
+        e11 && e11.data.a.b.c.d.e === 'leaf', JSON.stringify(e11 && e11.data));
+
+      // Large array capped at MAX_ARRAY (200)
+      clearBuffer();
+      var big = [];
+      for (var i = 0; i < 250; i++) big.push(i);
+      console.log('sc-bigArr', { items: big });
+      var e12 = lastEntry();
+      assert('SC13: array >200 items truncated to 200 + truncation marker',
+        e12 && e12.data.items.length === 201 &&
+        typeof e12.data.items[200] === 'string' && e12.data.items[200].indexOf('more') !== -1,
+        'length=' + (e12 && e12.data.items.length) + ', last=' + (e12 && e12.data.items[200]));
+
+      // Object with many keys capped at MAX_KEYS (200)
+      clearBuffer();
+      var big2 = {};
+      for (var k = 0; k < 220; k++) big2['key' + k] = k;
+      console.log('sc-bigObj', big2);
+      var e13 = lastEntry();
+      assert('SC14: object >200 keys truncated, __truncated marker added',
+        e13 && '__truncated' in e13.data,
+        'keys=' + (e13 && Object.keys(e13.data).length));
+
+      // Method is captured correctly
+      clearBuffer();
+      console.warn('sc-warn', { level: 'high' });
+      var e14 = lastEntry();
+      assert('SC15: method captured as "warn"',
+        e14 && e14.method === 'warn', e14 && e14.method);
+
+      // Timestamp is a recent number
+      clearBuffer();
+      var before = Date.now();
+      console.log('sc-ts', { x: 1 });
+      var after = Date.now();
+      var e15 = lastEntry();
+      assert('SC16: timestamp is a valid recent unix ms',
+        e15 && e15.timestamp >= before && e15.timestamp <= after,
+        e15 && e15.timestamp);
+    })();
+
+    // ════════════════════════════════════════════════════
+    // parseQuery — additional edge cases
+    // ════════════════════════════════════════════════════
+
+    (function testParseQueryExtra() {
+      var r;
+
+      r = parseQuery('status type');
+      assert('PQ13: two bare column tokens',
+        eq(r, { columns: ['status', 'type'], filters: [] }), JSON.stringify(r));
+
+      r = parseQuery('user.status=active');
+      assert('PQ14: filter with nested dot-path column',
+        r.columns[0] === 'user.status' && r.filters[0].path === 'user.status',
+        JSON.stringify(r));
+
+      r = parseQuery('status status=active');
+      assert('PQ15: bare column + same-path filter — column not duplicated',
+        r.columns.filter(function (c) { return c === 'status'; }).length === 1,
+        JSON.stringify(r.columns));
+
+      r = parseQuery('type status=active');
+      assert('PQ16: bare column + filter for different path — both appear in columns',
+        r.columns.indexOf('type') !== -1 && r.columns.indexOf('status') !== -1,
+        JSON.stringify(r.columns));
+    })();
+
+    // ════════════════════════════════════════════════════
+    // resolve — additional edge cases
+    // ════════════════════════════════════════════════════
+
+    (function testResolveExtra() {
+
+      assert('RV16: array with null elements — nulls skipped when traversing child key',
+        eq(resolve({ items: [null, { id: 1 }, null] }, 'items.id'), [1]),
+        JSON.stringify(resolve({ items: [null, { id: 1 }, null] }, 'items.id')));
+
+      assert('RV17: 5-level deep path',
+        eq(resolve({ a: { b: { c: { d: { e: 99 } } } } }, 'a.b.c.d.e'), [99]),
+        JSON.stringify(resolve({ a: { b: { c: { d: { e: 99 } } } } }, 'a.b.c.d.e')));
+
+      assert('RV18: numeric string key in plain object',
+        eq(resolve({ '0': 'zero' }, '0'), ['zero']),
+        JSON.stringify(resolve({ '0': 'zero' }, '0')));
+
+      assert('RV19: mixed-type array — only objects with the key contribute',
+        eq(resolve({ items: [42, { name: 'Alice' }, 'str'] }, 'items.name'), ['Alice']),
+        JSON.stringify(resolve({ items: [42, { name: 'Alice' }, 'str'] }, 'items.name')));
+
+      assert('RV20: array-of-arrays at leaf — outer array flattened one level',
+        eq(resolve({ x: [[1, 2], [3]] }, 'x'), [[1, 2], [3]]),
+        JSON.stringify(resolve({ x: [[1, 2], [3]] }, 'x')));
+    })();
+
+    // ════════════════════════════════════════════════════
+    // matchesFilters — additional edge cases
+    // ════════════════════════════════════════════════════
+
+    (function testMatchesFiltersExtra() {
+      function entry(overrides) {
+        return Object.assign({ id: 0, label: 'test', data: {}, timestamp: 0, method: 'log' }, overrides);
+      }
+      var noFilters = parseQuery('');
+
+      var q19 = parseQuery('count=42');
+      assert('MF19: numeric value matched via String conversion',
+        matchesFilters(entry({ data: { count: 42 } }), '', q19, '', true), '');
+
+      var q20 = parseQuery('user.role=admin');
+      assert('MF20: nested dot-path filter matches correctly',
+        matchesFilters(entry({ data: { user: { role: 'admin' } } }), '', q20, '', true), '');
+
+      var q21 = parseQuery('active=false');
+      assert('MF21: boolean false matched via string "false"',
+        matchesFilters(entry({ data: { active: false } }), '', q21, '', true), '');
+
+      var q22 = parseQuery('status=');
+      assert('MF22: empty values filter (status=) never matches',
+        !matchesFilters(entry({ data: { status: 'active' } }), '', q22, '', true), '');
+
+      var q23 = parseQuery('a=1 b=2');
+      assert('MF23: lenient mode — missing field skipped, matching field passes',
+        matchesFilters(entry({ data: { a: '1' } }), '', q23, '', false), '');
+
+      var q24 = parseQuery('count=0');
+      assert('MF24: number 0 matched via string "0"',
+        matchesFilters(entry({ data: { count: 0 } }), '', q24, '', true), '');
+
+      assert('MF25: level filter + label filter both satisfied → passes',
+        matchesFilters(entry({ label: 'User Event', method: 'warn' }), 'user', noFilters, 'warn', true), '');
+    })();
+
+    // ════════════════════════════════════════════════════
+    // safeClone — additional edge cases
+    // ════════════════════════════════════════════════════
+
+    (function testSafeCloneExtra() {
+      function clearBuffer() { window.__consoleLensBuffer = []; }
+      function lastEntry() { var b = window.__consoleLensBuffer; return b[b.length - 1]; }
+
+      // maxDepth config override
+      clearBuffer();
+      window.__consoleLensConfig = { maxDepth: 2 };
+      console.log('sc-cfg', { a: { b: { c: 'deep' } } });
+      delete window.__consoleLensConfig;
+      var e17 = lastEntry();
+      assert('SC17: __consoleLensConfig.maxDepth overrides depth limit',
+        e17 && e17.data.a && e17.data.a.b && e17.data.a.b.c === '<<depth limit>>',
+        JSON.stringify(e17 && e17.data));
+
+      // Symbol
+      clearBuffer();
+      console.log('sc-sym', { sym: Symbol('test') });
+      var e18 = lastEntry();
+      assert('SC18: Symbol → toString string',
+        e18 && e18.data.sym === 'Symbol(test)',
+        JSON.stringify(e18 && e18.data));
+
+      // BigInt
+      clearBuffer();
+      console.log('sc-bigint', { n: BigInt(9007199254740991) });
+      var e19 = lastEntry();
+      assert('SC19: BigInt → string representation',
+        e19 && typeof e19.data.n === 'string' && e19.data.n === '9007199254740991',
+        JSON.stringify(e19 && e19.data));
+
+      // Array of objects
+      clearBuffer();
+      console.log('sc-arr-objs', { items: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }] });
+      var e20 = lastEntry();
+      assert('SC20: array of objects cloned with all nested values',
+        e20 && e20.data.items[0].name === 'Alice' && e20.data.items[1].id === 2,
+        JSON.stringify(e20 && e20.data));
+
+      // Prototype properties excluded
+      clearBuffer();
+      function MyClass() { this.own = 1; }
+      MyClass.prototype.inherited = 2;
+      console.log('sc-proto', new MyClass());
+      var e21 = lastEntry();
+      assert('SC21: prototype properties excluded — only own enumerable keys cloned',
+        e21 && e21.data.own === 1 && !('inherited' in e21.data),
+        JSON.stringify(e21 && e21.data));
+    })();
+
+    // ════════════════════════════════════════════════════
+    // processFormatString — capture patterns (via buffer)
+    // ════════════════════════════════════════════════════
+
+    (function testProcessFormatString() {
+      function clearBuffer() { window.__consoleLensBuffer = []; }
+      function lastEntry() { var b = window.__consoleLensBuffer; return b[b.length - 1]; }
+
+      clearBuffer();
+      console.log('hello world');
+      var ps1 = lastEntry();
+      assert('PS1: string-only log → label=string, data={message:string}',
+        ps1 && ps1.label === 'hello world' && ps1.data.message === 'hello world',
+        JSON.stringify(ps1 && { label: ps1.label, msg: ps1.data.message }));
+
+      clearBuffer();
+      console.log({ userId: 42, action: 'login' });
+      var ps2 = lastEntry();
+      assert('PS2: object-only log → label is key fingerprint containing key name',
+        ps2 && typeof ps2.label === 'string' && ps2.label.indexOf('userId') !== -1,
+        JSON.stringify(ps2 && ps2.label));
+
+      clearBuffer();
+      console.log('user.login', { id: 1, email: 'a@b.com' });
+      var ps3 = lastEntry();
+      assert('PS3: label + object → correct label and data',
+        ps3 && ps3.label === 'user.login' && ps3.data.id === 1,
+        JSON.stringify(ps3 && { label: ps3.label, id: ps3.data.id }));
+
+      clearBuffer();
+      console.log('%c[Event] %s', 'color:red', 'click', { target: 'btn' });
+      var ps4 = lastEntry();
+      assert('PS4: format string %c/%s → label assembled, %c removed, data captured',
+        ps4 && ps4.label === '[Event] click' && ps4.data.target === 'btn',
+        JSON.stringify(ps4 && { label: ps4.label, data: ps4.data }));
+
+      var preLenPS5 = window.__consoleLensBuffer.length;
+      console.log();
+      assert('PS5: no-arg console.log → buffer unchanged',
+        window.__consoleLensBuffer.length === preLenPS5,
+        'before=' + preLenPS5 + ' after=' + window.__consoleLensBuffer.length);
+
+      clearBuffer();
+      console.log('count', 42);
+      var ps6 = lastEntry();
+      assert('PS6: label + number → data.message set (number is not an object)',
+        ps6 && ps6.label === 'count' && ps6.data.message === 'count',
+        JSON.stringify(ps6 && { label: ps6.label, data: ps6.data }));
+
+      clearBuffer();
+      console.error('err event', { code: 500 });
+      var ps7 = lastEntry();
+      assert('PS7: console.error captured with method="error"',
+        ps7 && ps7.method === 'error' && ps7.data.code === 500,
+        JSON.stringify(ps7 && { method: ps7.method, data: ps7.data }));
+    })();
+
+    // ════════════════════════════════════════════════════
+    // Virtual scroll helpers — rebuildPrefixSum / findFirstIndex
+    // Inline implementations matching panel.js logic for isolated testing.
+    // ════════════════════════════════════════════════════
+
+    (function testVirtualScroll() {
+      var EST = 38;
+
+      function rebuild(logs, cache) {
+        var ps = [0];
+        for (var i = 0; i < logs.length; i++) {
+          ps.push(ps[ps.length - 1] + (cache[logs[i].id] || EST));
+        }
+        return ps;
+      }
+
+      function find(ps, logs, target) {
+        var lo = 0, hi = logs.length;
+        while (lo < hi) {
+          var mid = (lo + hi) >> 1;
+          if (ps[mid + 1] <= target) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      }
+
+      function mkLogs(n) {
+        return Array.from({ length: n }, function (_, i) { return { id: i }; });
+      }
+
+      assert('VS1: empty filteredLogs → prefix sum [0]',
+        eq(rebuild([], {}), [0]), '');
+
+      var l3 = mkLogs(3);
+      var ps3v = rebuild(l3, {});
+      assert('VS2: 3 uniform-height cards at 38px → [0, 38, 76, 114]',
+        eq(ps3v, [0, 38, 76, 114]), JSON.stringify(ps3v));
+
+      assert('VS3: prefix sum is monotonically non-decreasing',
+        (function () {
+          var ps = rebuild(mkLogs(10), {});
+          for (var i = 1; i < ps.length; i++) if (ps[i] < ps[i - 1]) return false;
+          return true;
+        })(), '');
+
+      assert('VS4: findFirstIndex at scroll=0 → 0',
+        find(ps3v, l3, 0) === 0, '');
+
+      assert('VS5: scroll=37 (within first card) → index 0',
+        find(ps3v, l3, 37) === 0, '');
+
+      assert('VS6: scroll=38 (exactly at first boundary) → index 1',
+        find(ps3v, l3, 38) === 1, '');
+
+      assert('VS7: scroll past all cards → filteredLogs.length',
+        find(ps3v, l3, 9999) === l3.length, '');
+
+      assert('VS8: cardHeightCache overrides estimate',
+        (function () {
+          var lg = [{ id: 0 }, { id: 1 }];
+          var ps = rebuild(lg, { 0: 100, 1: 50 });
+          return eq(ps, [0, 100, 150]);
+        })(), '');
+
+      assert('VS9: single card — find at scroll=0 returns 0',
+        find(rebuild(mkLogs(1), {}), mkLogs(1), 0) === 0, '');
+
+      assert('VS10: correct index on large list (1000 uniform cards)',
+        (function () {
+          var big = mkLogs(1000);
+          var ps = rebuild(big, {});
+          // card 500 starts at 500*38 = 19000
+          return find(ps, big, 19000) === 500;
+        })(), '');
+    })();
+
+    // ════════════════════════════════════════════════════
+    // Render
+    // ════════════════════════════════════════════════════
+
+    var passed = 0, failed = 0;
+    var html = '';
+    var currentSection = '';
+
+    var sections = {
+      'PQ': 'parseQuery',
+      'RV': 'resolve',
+      'MF': 'matchesFilters',
+      'SC': 'safeClone (via page-script.js)',
+      'PS': 'processFormatString (via buffer)',
+      'VS': 'virtual scroll helpers',
+    };
+
+    for (var i = 0; i < results.length; i++) {
+      var r = results[i];
+      var prefix = r.name.match(/^([A-Z]+)/);
+      var section = prefix ? sections[prefix[1]] : '';
+      if (section && section !== currentSection) {
+        html += '<h2>' + section + '</h2>';
+        currentSection = section;
+      }
+      if (r.pass) {
+        passed++;
+        html += '<div class="pass">PASS: ' + r.name + '</div>';
+      } else {
+        failed++;
+        html += '<div class="fail">FAIL: ' + r.name + '</div>';
+      }
+      if (r.detail) html += '<div class="detail">' + r.detail + '</div>';
+    }
+
+    document.getElementById('results').innerHTML = html;
+    var summaryEl = document.getElementById('summary');
+    summaryEl.textContent = passed + ' passed, ' + failed + ' failed, ' + results.length + ' total';
+    summaryEl.className = failed === 0 ? 'all-pass' : 'has-fail';
+
+    console.log('Engine test results', { passed: passed, failed: failed, total: results.length });
+  </script>
+</body>
+</html>
